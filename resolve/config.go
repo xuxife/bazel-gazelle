@@ -64,7 +64,12 @@ func (o regexpOverrideSpec) matches(imp ImportSpec, lang string) bool {
 }
 
 func (o regexpOverrideSpec) resolveRegexpDep(imp ImportSpec) label.Label {
-
+	// If "$" is found in the dependency string, then backreferences exist and
+	// ReplaceAllString() should be run on the string to substitute in the
+	// correct replacement strings to build the label.
+	if !strings.Contains(o.dep.String(), "$") {
+	    return o.dep
+	}
 	resolvedDepWithRegex := o.ImpRegex.ReplaceAllString(imp.Imp, o.dep.String())
 	resolvedLabel, err := label.Parse(resolvedDepWithRegex)
 	if err != nil {
