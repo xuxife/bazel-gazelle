@@ -64,6 +64,19 @@ def gazelle_dependencies(
         sha256 = "26d4021f6898e23b82ef953078389dd49ac2b5618ac564ade4ef87cced147b38",
     )
 
+    # We are not able to call rules_shell's dependency macros without introducing new levels of
+    # such macros to gazelle. With Bazel < 8, rules_shell forwards to the native sh_* rules, so
+    # its dependencies are not needed. With Bazel 8, rules_shell is automatically loaded by Bazel.
+    _maybe(
+        http_archive,
+        name = "rules_shell",
+        urls = [
+            "https://mirror.bazel.build/github.com/bazelbuild/rules_shell/releases/download/v0.3.0/rules_shell-v0.3.0.tar.gz",
+            "https://github.com/bazelbuild/rules_shell/releases/download/v0.3.0/rules_shell-v0.3.0.tar.gz",
+        ],
+        sha256 = "d8cd4a3a91fc1dc68d4c7d6b655f09def109f7186437e3f50a9b60ab436a0c53",
+        strip_prefix = "rules_shell-0.3.0",
+    )
     if go_sdk:
         go_repository_cache(
             name = "bazel_gazelle_go_repository_cache",
