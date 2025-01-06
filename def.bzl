@@ -214,11 +214,12 @@ def _gazelle_kwargs_prepare(name, kwargs):
     visibility = kwargs.pop("visibility", None)
     return name + "-runner", visibility
 
-def gazelle(name, **kwargs):
+def gazelle(name, testonly = False, **kwargs):
     runner_name, visibility = _gazelle_kwargs_prepare(name, kwargs)
 
     _gazelle_runner(
         name = runner_name,
+        testonly = testonly,
         **kwargs
     )
     tags_set = {t: "" for t in kwargs.pop("tags", [])}
@@ -229,6 +230,7 @@ def gazelle(name, **kwargs):
         tags = tags,
         srcs = [runner_name],
         visibility = visibility,
+        testonly = testonly,
         deps = ["@bazel_tools//tools/bash/runfiles"],
         data = kwargs["data"] if "data" in kwargs else [],
     )
