@@ -88,6 +88,12 @@ func FixLoads(f *rule.File, knownLoads []rule.LoadInfo) {
 			} else {
 				return
 			}
+		} else if ae, ok := x.(*bzl.AssignExpr); ok {
+			if id, ok := ae.RHS.(*bzl.Ident); ok {
+				idents = append(idents, id)
+			} else {
+				return
+			}
 		} else {
 			return
 		}
