@@ -684,6 +684,65 @@ func TestSubdirsContained(t *testing.T) {
 	})
 }
 
+func TestRelsToVisit(t *testing.T) {
+	dir, cleanup := testtools.CreateFiles(t, []testtools.FileSpec{
+		{Path: "update/sub/"},
+		{Path: "extra/a/sub/"},
+		{Path: "extra/b/sub/"},
+		{Path: "extra/does/not/"},
+	})
+	defer cleanup()
+
+	// Update the update/ directory only without recursing.
+	// Return extra/a/ through RelsToVisit.
+	var configuredRels, visitedRels, updatedRels []string
+	c, cexts := testConfig(t, dir)
+	cexts = append(cexts, &testConfigurer{
+		configure: func(_ *config.Config, rel string, _ *rule.File) {
+			configuredRels = append(configuredRels, rel)
+		},
+	})
+	updateDir := filepath.Join(dir, "update")
+	err := Walk2(c, cexts, []string{updateDir}, UpdateDirsMode, func(args Walk2FuncArgs) Walk2FuncResult {
+		visitedRels = append(visitedRels, args.Rel)
+		if args.Update {
+			updatedRels = append(updatedRels, args.Rel)
+		}
+		res := Walk2FuncResult{}
+		switch args.Rel {
+		case "update":
+			res.RelsToVisit = []string{"update", "extra/a"}
+		case "extra/a":
+			res.RelsToVisit = []string{"update", "extra/b/sub"}
+		case "extra/b/sub":
+			res.RelsToVisit = []string{"update", "extra/b"}
+		case "extra/b":
+			res.RelsToVisit = []string{"extra/does/not/exist"}
+		}
+		return res
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify directories mentioned in RelsToVisit were configured, as well as
+	// their parents.
+	wantConfiguredRels := []string{"", "update", "extra", "extra/a", "extra/b", "extra/b/sub", "extra/does", "extra/does/not"}
+	if diff := cmp.Diff(wantConfiguredRels, configuredRels); diff != "" {
+		t.Errorf("configured rels (-want,+got):\n%s", diff)
+	}
+	// Verify directories mentioned in RelsToVisit were visited.
+	wantVisitedRels := []string{"update", "extra/a", "extra/b/sub", "extra/b"}
+	if diff := cmp.Diff(wantVisitedRels, visitedRels); diff != "" {
+		t.Errorf("visited rels (-want,+got)\n%s", diff)
+	}
+	// Verify directories mentioned in RelsToVisit were not updated.
+	wantUpdatedRels := []string{"update"}
+	if diff := cmp.Diff(wantUpdatedRels, updatedRels); diff != "" {
+		t.Errorf("updated rels (-want,+got)\n%s", diff)
+	}
+}
+
 func testConfig(t *testing.T, dir string) (*config.Config, []config.Configurer) {
 	args := []string{"-repo_root", dir}
 	cexts := []config.Configurer{&config.CommonConfigurer{}, &Configurer{}}

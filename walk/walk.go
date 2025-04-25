@@ -217,6 +217,60 @@ func Walk2(c *config.Config, cexts []config.Configurer, dirs []string, mode Mode
 		return errors.Join(w.errs...)
 	}
 
+	// Visit additional directories that extensions requested for indexing.
+	// Don't visit subdirectories recursively, even when recursion is enabled.
+	w.mode = UpdateDirsMode
+	for len(w.relsToVisit) > 0 {
+		// Don't simply range over relsToVisit. We may append more.
+		relToVisit := w.relsToVisit[0]
+		w.relsToVisit = w.relsToVisit[1:]
+
+		// Make sure to visit prefixes of relToVisit as well so we apply
+		// configuration directives.
+		slash := -1
+		for {
+			var rel string
+			i := strings.Index(relToVisit[slash+1:], "/")
+			if i < 0 {
+				rel = relToVisit
+			} else {
+				rel = relToVisit[:slash+1+i]
+				slash = slash + 1 + i
+			}
+
+			if v, ok := w.visits[rel]; !ok || !v.didCall {
+				var c *config.Config
+				if ok {
+					// Already configured this directory but did not call the callback.
+					c = v.c
+				} else {
+					// Never visited this directory.
+					parentRel := path.Dir(rel)
+					if parentRel == "." {
+						parentRel = ""
+					}
+					parentCfg := w.visits[parentRel].c
+					if getWalkConfig(parentCfg).isExcludedDir(rel) {
+						break
+					}
+					if _, err := w.cache.get(rel, w.loadDirInfo); errors.Is(err, fs.ErrNotExist) {
+						// Directory does not exist.
+						break
+					}
+					c = parentCfg.Clone()
+				}
+				w.visit(c, rel, false)
+			}
+
+			if rel == relToVisit {
+				break
+			}
+		}
+
+		if c.Strict && len(w.errs) > 0 {
+			return errors.Join(w.errs...)
+		}
+	}
 	return errors.Join(w.errs...)
 }
 
@@ -257,6 +311,15 @@ type walker struct {
 	// by parents.
 	visits map[string]visitInfo
 
+	// relsToVisit is a list of slash-separated repo-root-relative paths to
+	// additional directories to visit. These directories are not visited
+	// recursively. wf is called with Walk2FuncArgs.Update false.
+	relsToVisit []string
+
+	// relsToVisitSeen indicates whether a string was added to relsToVisit.
+	// It's used to avoid appending a path more than once.
+	relsToVisitSeen map[string]struct{}
+
 	// errs is a list of errors encountered while walking the directory tree.
 	// If the Config.Strict flag is set in the root configuration, we return
 	// quickly after the first error.
@@ -268,6 +331,12 @@ type visitInfo struct {
 	// contain a build file. The parent directory may use regularFiles
 	// and subdirs.
 	containedByParent bool
+
+	// didCall is true if we called the callback function for this directory.
+	// We must call this at most once, though we may visit a directory more than
+	// once: first, to configure it as a parent directory of something else;
+	// later, from RelsToVisit.
+	didCall bool
 
 	c                     *config.Config
 	regularFiles, subdirs []string
@@ -321,6 +390,7 @@ func newWalker(c *config.Config, cexts []config.Configurer, dirs []string, mode 
 		wf:              wf,
 		shouldUpdateRel: shouldUpdateRel,
 		visits:          make(map[string]visitInfo),
+		relsToVisitSeen: make(map[string]struct{}),
 	}
 	if mode == VisitAllUpdateSubdirsMode || mode == UpdateSubdirsMode {
 		w.populateCache(rels)
@@ -333,8 +403,8 @@ func newWalker(c *config.Config, cexts []config.Configurer, dirs []string, mode 
 // We always need to visit directories requested by the caller and their
 // parents. We may also need to visit subdirectories.
 func (w *walker) shouldVisit(rel string, parentConfig *walkConfig, updateParent bool) bool {
-	if _, ok := w.visits[rel]; ok {
-		// Already visited.
+	if w.visits[rel].didCall {
+		// Already visited and called.
 		return false
 	}
 	if parentConfig.isExcludedDir(rel) {
@@ -358,17 +428,19 @@ func (w *walker) shouldVisit(rel string, parentConfig *walkConfig, updateParent 
 // on rel. We always need to call it on directories requested by the caller.
 // We may need to call it on their subdirectories, depending on mode. We also
 // need to call it on any additional directories requested by the callback.
-func (w *walker) shouldCall(rel string, updateParent bool) bool {
-	if w.visits[rel].containedByParent {
+func (w *walker) shouldCall(rel string, containedByParent, updateParent bool) bool {
+	if containedByParent {
 		return false
 	}
 	switch w.mode {
 	case VisitAllUpdateSubdirsMode, VisitAllUpdateDirsMode:
 		return true
 	case UpdateSubdirsMode:
-		return updateParent || w.shouldUpdateRel[rel]
+		_, isRelToVisit := w.relsToVisitSeen[rel]
+		return updateParent || w.shouldUpdateRel[rel] || isRelToVisit
 	default: // UpdateDirsMode
-		return w.shouldUpdateRel[rel]
+		_, isRelToVisit := w.relsToVisitSeen[rel]
+		return w.shouldUpdateRel[rel] || isRelToVisit
 	}
 }
 
@@ -390,29 +462,32 @@ func (w *walker) shouldUpdate(rel string, updateParent bool) bool {
 // shouldUpdate). The callback may not actually be called if the build file
 // contains syntax errors or a gazelle:ignore directive.
 func (w *walker) visit(c *config.Config, rel string, updateParent bool) {
-	w.visits[rel] = visitInfo{c: c} // to be updated when we're further along.
-
 	// Absolute path to the directory being visited
 	dir := filepath.Join(c.RepoRoot, rel)
 
-	// Load the build file.
+	// Load the build file and directory metadata.
 	info, err := w.cache.get(rel, w.loadDirInfo)
 	if err != nil {
 		w.errs = append(w.errs, err)
 	}
 	hasBuildFileError := err != nil
-
 	wc := info.config
 	containedByParent := info.file == nil && wc.updateOnly
-	if !containedByParent {
+
+	// Configure the directory, if we haven't done so already.
+	_, alreadyConfigured := w.visits[rel]
+	if !containedByParent && !alreadyConfigured {
 		configure(w.cexts, w.knownDirectives, c, rel, info.file, info.config)
 	}
+
 	regularFiles := info.regularFiles
 	subdirs := info.subdirs
-
+	shouldUpdate := w.shouldUpdate(rel, updateParent)
+	shouldCall := w.shouldCall(rel, containedByParent, updateParent)
 	w.visits[rel] = visitInfo{
 		c:                 c,
 		containedByParent: containedByParent,
+		didCall:           shouldCall,
 		regularFiles:      regularFiles,
 		subdirs:           subdirs,
 	}
@@ -422,7 +497,6 @@ func (w *walker) visit(c *config.Config, rel string, updateParent bool) {
 	}
 
 	// Visit subdirectories, as needed.
-	shouldUpdate := w.shouldUpdate(rel, updateParent)
 	for _, subdir := range subdirs {
 		subdirRel := path.Join(rel, subdir)
 		if w.shouldVisit(subdirRel, info.config, shouldUpdate) {
@@ -459,7 +533,7 @@ func (w *walker) visit(c *config.Config, rel string, updateParent bool) {
 
 	// Call the callback to update this directory.
 	update := !wc.ignore && shouldUpdate && !hasBuildFileError
-	if w.shouldCall(rel, updateParent) {
+	if shouldCall {
 		genFiles := findGenFiles(wc, info.file)
 		result := w.wf(Walk2FuncArgs{
 			Dir:          dir,
@@ -473,6 +547,12 @@ func (w *walker) visit(c *config.Config, rel string, updateParent bool) {
 		})
 		if result.Err != nil {
 			w.errs = append(w.errs, result.Err)
+		}
+		for _, relToVisit := range result.RelsToVisit {
+			if _, ok := w.relsToVisitSeen[relToVisit]; !ok {
+				w.relsToVisit = append(w.relsToVisit, relToVisit)
+				w.relsToVisitSeen[relToVisit] = struct{}{}
+			}
 		}
 	}
 }
