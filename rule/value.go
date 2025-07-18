@@ -69,14 +69,27 @@ func ParseGlobExpr(e bzl.Expr) (GlobValue, bool) {
 		return GlobValue{}, false
 	}
 	var glob GlobValue
+	parseStringsList := func(list *bzl.ListExpr) []string {
+		parsed := make([]string, 0, len(list.List))
+		for _, e := range list.List {
+			if str, ok := e.(*bzl.StringExpr); ok {
+				parsed = append(parsed, str.Value)
+			}
+		}
+		return parsed
+	}
+
+	// Positional arguments needs to be placed before named arguments, otherwise these are ambigious
+	allowPositionalArgs := true
 	for i, arg := range call.List {
-		list, ok := arg.(*bzl.ListExpr)
-		if i == 0 && ok {
-			glob.Patterns = make([]string, 0, len(list.List))
-			for _, e := range list.List {
-				if str, ok := e.(*bzl.StringExpr); ok {
-					glob.Patterns = append(glob.Patterns, str.Value)
-				}
+		if list, ok := arg.(*bzl.ListExpr); ok && allowPositionalArgs {
+			switch i {
+			case 0:
+				glob.Patterns = parseStringsList(list)
+			case 1:
+				glob.Excludes = parseStringsList(list)
+				// Last handled positional argument, no need to visit more
+				return glob, true
 			}
 			continue
 		}
@@ -85,19 +98,20 @@ func ParseGlobExpr(e bzl.Expr) (GlobValue, bool) {
 		if !ok {
 			continue
 		}
+		allowPositionalArgs = false
 		key, ok := kv.LHS.(*bzl.Ident)
-		if !ok || key.Name != "exclude" {
-			continue
-		}
-		list, ok = kv.RHS.(*bzl.ListExpr)
 		if !ok {
 			continue
 		}
-		glob.Excludes = make([]string, 0, len(list.List))
-		for _, e := range list.List {
-			if str, ok := e.(*bzl.StringExpr); ok {
-				glob.Excludes = append(glob.Excludes, str.Value)
-			}
+		list, ok := kv.RHS.(*bzl.ListExpr)
+		if !ok {
+			continue
+		}
+		switch key.Name {
+		case "exclude":
+			glob.Excludes = parseStringsList(list)
+		case "include":
+			glob.Patterns = parseStringsList(list)
 		}
 	}
 	return glob, true
