@@ -15,23 +15,11 @@ limitations under the License.
 
 package main
 
-import (
-	"fmt"
-	"os/exec"
-)
-
 func moduleFromPath(from string, dest string) error {
 	err := copyTree(dest, from)
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(findGoPath(), "mod", "download", "-json", "-modcacherw")
-	cmd.Dir = dest
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("error running '%v': %v in %s. Output: %s", cmd.Args, err, dest, string(output))
-	}
 	return nil
 }
