@@ -696,6 +696,17 @@ Mismatch between versions requested for Go module {module}:
             "patch_args": _get_patch_args(path, module_overrides),
             "debug_mode": debug_mode,
         }
+        if path == "github.com/xuxife/gazelle-multi-gomod-poc/dep":
+            go_repository_args_copy = {k: v for k, v in go_repository_args.items()}
+            go_repository_args.update({
+                "name": module.repo_name + "_v0.0.1",
+            })
+            go_repository_args_copy.update({
+                "name": module.repo_name + "_v0.0.2",
+                "sum": "h1:K6oaG9HxhswCZVju/MuHTl33QM1oC+YNsN+M2FBHpJ8=",
+            })
+            go_repository(**go_repository_args_copy)
+
 
         archive_override = archive_overrides.get(path)
         if archive_override:
