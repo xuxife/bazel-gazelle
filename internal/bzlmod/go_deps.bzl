@@ -514,7 +514,10 @@ def _go_deps_impl(module_ctx):
                 if _is_dev_dependency(module_ctx, module_tag):
                     root_module_direct_dev_deps[_repo_name(module_tag.path)] = None
                 else:
-                    root_module_direct_deps[_repo_name(module_tag.path)] = None
+                    repo_name = _repo_name(module_tag.path)
+                    if repo_name == "com_github_xuxife_gazelle_multi_gomod_poc_dep":
+                        root_module_direct_deps[repo_name + "_v0.0.1"] = None
+                        root_module_direct_deps[repo_name + "_v0.0.2"] = None
 
             version = semver.to_comparable(raw_version)
             previous = paths.get(module_tag.path)
