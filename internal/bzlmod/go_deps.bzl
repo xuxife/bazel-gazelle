@@ -719,9 +719,9 @@ Go module version (go.mod):       {go_module_version}
                 root_module_direct_deps.pop(_repo_name(struct(path=path), versioned=False), None)
                 root_module_direct_dev_deps.pop(_repo_name(struct(path=path), versioned=False), None)
                 continue
-            if module.repo_name in repos_processed and repos_processed[module.repo_name] != path:
+            if module.repo_name in repos_processed and repos_processed[module.repo_name].path != path:
                 fail("Go module {prev_path} and {path} will resolve to the same Bazel repo name: {name}. While Go allows modules to only differ in case, this isn't supported in Gazelle (yet). Please ensure you only use one of these modules in your go.mod(s)".format(
-                    prev_path = repos_processed[module.repo_name],
+                    prev_path = repos_processed[module.repo_name].path,
                     path = path,
                     name = module.repo_name,
                 ))
@@ -767,9 +767,12 @@ Go module version (go.mod):       {go_module_version}
 
                 go_repository_args.update(repo_args)
 
-            if module.repo_name not in repos_processed:
-                go_repository(**go_repository_args)
-            repos_processed[module.repo_name] = path
+            # MVS
+            if module.repo_name not in repos_processed or module.version > repos_processed[module.repo_name].module.version:
+                repos_processed[module.repo_name] = struct(path = path, module = module, args = go_repository_args)
+
+    for repo_info in repos_processed.values():
+        go_repository(**repo_info.args)
 
     importpaths = {}
     build_naming_conventions = {}
