@@ -34,6 +34,7 @@ ARGS=@@ARGS@@
 GOTOOL=@@GOTOOL@@
 REPO_CONFIG_PATH=@@REPO_CONFIG_PATH@@
 WORKSPACE="@@WORKSPACE@@"
+GAZELLE_WORKSPACE_RELATIVE_PATH="@@GAZELLE_WORKSPACE_RELATIVE_PATH@@"
 
 @@ENV@@
 
@@ -84,6 +85,9 @@ fi
 if [ -z "${BUILD_WORKSPACE_DIRECTORY-}" ]; then
   echo "error: BUILD_WORKSPACE_DIRECTORY not set" >&2
   exit 1
+fi
+if [[ -n "$GAZELLE_WORKSPACE_RELATIVE_PATH" ]]; then
+  export GAZELLE_WORKSPACE_RELATIVE_PATH
 fi
 
 # Determine if we are running the fix/update command

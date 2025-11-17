@@ -259,6 +259,9 @@ var genericLoads = []rule.LoadInfo{
 }
 
 func runFixUpdate(wd string, cmd command, args []string) (err error) {
+	if relativePath := os.Getenv("GAZELLE_WORKSPACE_RELATIVE_PATH"); relativePath != "" {
+		wd = filepath.Join(wd, relativePath)
+	}
 	cexts := make([]config.Configurer, 0, len(languages)+4)
 	cexts = append(cexts,
 		&config.CommonConfigurer{},

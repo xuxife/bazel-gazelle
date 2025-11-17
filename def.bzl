@@ -110,6 +110,7 @@ def _gazelle_runner_attr_factory(test_runner = False):
         "extra_args": attr.string_list(),
         "data": attr.label_list(allow_files = True),
         "env": attr.string_dict(),
+        "versioned": attr.label(allow_single_file = True),
         "_repo_config": attr.label(
             default = "@bazel_gazelle_go_repository_config//:WORKSPACE" if GAZELLE_IS_BAZEL_MODULE else None,
             allow_single_file = True,
@@ -168,6 +169,7 @@ def _gazelle_runner_impl_factory(ctx, test_runner = False):
         "@@ENV@@": env,
         "@@REPO_CONFIG_PATH@@": shell.quote(_rlocation_path(ctx, repo_config)) if repo_config else "",
         "@@WORKSPACE@@": ctx.file.workspace.path if test_runner else "",
+        "@@GAZELLE_WORKSPACE_RELATIVE_PATH@@": ctx.attr.versioned.label.package if ctx.attr.versioned else "",
     }
     ctx.actions.expand_template(
         template = ctx.file._template,
