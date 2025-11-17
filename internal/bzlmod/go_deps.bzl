@@ -459,7 +459,6 @@ def _go_deps_impl(module_ctx):
         for go_mod_or_work_label, from_file_tags in all_from_file_tags.items():
             for from_file_tag in from_file_tags:
                 module_path, module_tags_from_go_mod, go_mod_replace_map, tools = deps_from_go_mod(module_ctx, from_file_tag.go_mod)
-                all_tools.extend(tools)
                 for tool in tools:
                     # The tool's package may be the module itself.
                     possible_tool_modules[tool] = None
@@ -772,40 +771,6 @@ Go module version (go.mod):       {go_module_version}
                 go_repository(**go_repository_args)
             repos_processed[module.repo_name] = path
 
-    # Build lookup table for tool_targets
-    importpath_to_repo = {}
-    for module_resolutions in all_module_resolutions.values():
-        # TODO: last write wins, is this OK?
-        importpath_to_repo.update({
-            path: module.repo_name
-            for path, module in module_resolutions.items()
-        })
-
-    tool_targets = {}
-    for tool_path in all_tools:
-        segments = tool_path.split("/")
-        module_path = None
-
-        # Start from the longest possible prefix and work down
-        for i in range(len(segments), 0, -1):
-            candidate = "/".join(segments[:i])
-            if candidate in importpath_to_repo:
-                module_path = candidate
-                break
-
-        if module_path:
-            tool_name = segments[-1]
-            target_name = tool_name
-            if len(segments) >= 2 and len(tool_name) >= 2 and tool_name[0] == "v" and tool_name[1:].isdigit():
-                # Skip major version
-                tool_name = segments[-2]
-            pkg_path = tool_path[len(module_path):].lstrip("/")
-            tool_targets[tool_name] = "@{repo}//{pkg}:{target}".format(
-                repo = importpath_to_repo[module_path],
-                pkg = pkg_path,
-                target = target_name,
-            )
-
     importpaths = {}
     build_naming_conventions = {}
     for module_resolutions in all_module_resolutions.values():
@@ -823,7 +788,6 @@ Go module version (go.mod):       {go_module_version}
     _go_repository_config(
         name = "bazel_gazelle_go_repository_config",
         importpaths = importpaths,
-        tool_targets = tool_targets,
         module_names = {
             info.repo_name: info.module_name
             for path, info in bazel_deps.items()
