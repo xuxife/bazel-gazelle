@@ -415,12 +415,16 @@ def _go_deps_impl(module_ctx):
 
             # PATCH:
             # initialize per go.mod / go.work maps
-            go_mod_or_work_label = from_file_tag.go_mod if from_file_tag.go_mod else from_file_tag.go_work
-            all_module_resolutions[go_mod_or_work_label] = {}
-            all_replace_map[go_mod_or_work_label] = {}
-            all_root_versions[go_mod_or_work_label] = {}
-            all_additional_module_tags[go_mod_or_work_label] = []
-            all_from_file_tags[go_mod_or_work_label] = []
+            if module.is_root:
+                go_mod_or_work_label = from_file_tag.go_mod if from_file_tag.go_mod else from_file_tag.go_work
+            else:
+                go_mod_or_work_label = Label("//:non_root_module") # this is a fake one
+
+            all_module_resolutions[go_mod_or_work_label] = all_module_resolutions.get(go_mod_or_work_label, {})
+            all_replace_map[go_mod_or_work_label] = all_replace_map.get(go_mod_or_work_label, {})
+            all_root_versions[go_mod_or_work_label] = all_root_versions.get(go_mod_or_work_label, {})
+            all_additional_module_tags[go_mod_or_work_label] = all_additional_module_tags.get(go_mod_or_work_label, [])
+            all_from_file_tags[go_mod_or_work_label] = all_from_file_tags.get(go_mod_or_work_label, [])
 
             if from_file_tag.go_mod:
                 all_from_file_tags[go_mod_or_work_label].append(from_file_tag)
@@ -535,9 +539,9 @@ def _go_deps_impl(module_ctx):
                 if module.is_root and (not module_tag.indirect or module_tag.path in possible_tool_modules):
                     root_versions[module_tag.path] = raw_version
                     if _is_dev_dependency(module_ctx, module_tag):
-                        root_module_direct_dev_deps[_repo_name(module_tag, scoped = go_mod_or_work_label.package)] = None
+                        root_module_direct_dev_deps[_repo_name(module_tag, scoped = go_mod_or_work_label.package if module.is_root else None)] = None
                     else:
-                        root_module_direct_deps[_repo_name(module_tag, scoped = go_mod_or_work_label.package)] = None
+                        root_module_direct_deps[_repo_name(module_tag, scoped = go_mod_or_work_label.package if module.is_root else None)] = None
 
                 version = semver.to_comparable(raw_version)
                 previous = paths.get(module_tag.path)
@@ -707,13 +711,14 @@ Go module version (go.mod):       {go_module_version}
                 root_module_direct_deps.pop(_repo_name(struct(path=path)), None)
                 root_module_direct_dev_deps.pop(_repo_name(struct(path=path)), None)
                 continue
-            if module.repo_name in repos_processed and repos_processed[module.repo_name].path != path:
+            if module.repo_name in repos_processed:
                 fail("Go module {prev_path} and {path} will resolve to the same Bazel repo name: {name}. While Go allows modules to only differ in case, this isn't supported in Gazelle (yet). Please ensure you only use one of these modules in your go.mod(s)".format(
-                    prev_path = repos_processed[module.repo_name].path,
+                    prev_path = repos_processed[module.repo_name],
                     path = path,
                     name = module.repo_name,
                 ))
 
+            repos_processed[module.repo_name] = path
             go_repository_args = {
                 "name": module.repo_name,
                 # Compared to the name attribute, the content of this attribute does not go through repo
@@ -755,12 +760,7 @@ Go module version (go.mod):       {go_module_version}
 
                 go_repository_args.update(repo_args)
 
-            # MVS
-            if module.repo_name not in repos_processed or module.version > repos_processed[module.repo_name].module.version:
-                repos_processed[module.repo_name] = struct(path = path, module = module, args = go_repository_args)
-
-    for repo_info in repos_processed.values():
-        go_repository(**repo_info.args)
+            go_repository(**go_repository_args)
 
     importpaths = {}
     build_naming_conventions = {}
