@@ -171,7 +171,10 @@ def _repo_name(module_tag, scoped = None):
     if scoped:
         segments.append(scoped)
     candidate_name = "_".join(segments).replace("-", "_")
-    return "".join([c.lower() if c.isalnum() else "_" for c in candidate_name.elems()])
+    return _sanitize_name(candidate_name)
+
+def _sanitize_name(origin):
+    return "".join([c.lower() if c.isalnum() else "_" for c in origin.elems()])
 
 def _is_dev_dependency(module_ctx, tag):
     if hasattr(tag, "_is_dev_dependency"):
@@ -252,18 +255,25 @@ def _process_archive_override(archive_override_tag):
     )
 
 def _go_repository_config_impl(ctx):
-    repos = []
+    # after patch, importpaths and build_naming_conventions has scoped key
+    # repo_name = module.repo_name
+    # if go_mod_or_work_label == _NON_ROOT_MODULE:
+    #     repo_name = "{}+{}".format(_sanitize_name(go_mod_or_work_label.package), module.repo_name)
+    all_repos = {}
     for name, importpath in sorted(ctx.attr.importpaths.items()):
-        repos.append(format_rule_call(
+        workspace, repo_name = ("WORKSPACE_" + name.split("+", 1)[0], name.split("+", 1)[1]) if "+" in name else ("WORKSPACE", name)
+        all_repos[workspace] = all_repos.get(workspace, [])
+        all_repos[workspace].append(format_rule_call(
             "go_repository",
-            name = name,
+            name = repo_name,
             importpath = importpath,
-            module_name = ctx.attr.module_names.get(name),
+            module_name = ctx.attr.module_names.get(repo_name),
             build_naming_convention = ctx.attr.build_naming_conventions.get(name),
         ))
 
-    ctx.file("WORKSPACE", "\n".join(repos))
-    ctx.file("BUILD.bazel", "exports_files(['WORKSPACE', 'config.json', 'go_env.bzl'])")
+    for workspace, repos in all_repos.items():
+        ctx.file(workspace, "\n".join(repos))
+    ctx.file("BUILD.bazel", "exports_files(['config.json', 'go_env.bzl', " + ", ".join(["'{}'".format(w) for w in all_repos.keys()]) + "])")
     ctx.file("go_env.bzl", content = "GO_ENV = " + repr(ctx.attr.go_env))
 
     # For use by @rules_go//go.
@@ -336,6 +346,8 @@ _SHARED_REPOS = [
     "github.com/golang/protobuf",
     "google.golang.org/protobuf",
 ]
+
+_NON_ROOT_MODULE = Label("//:non_root_module")
 
 def _go_deps_impl(module_ctx):
     all_module_resolutions = {}
@@ -418,7 +430,7 @@ def _go_deps_impl(module_ctx):
             if module.is_root:
                 go_mod_or_work_label = from_file_tag.go_mod if from_file_tag.go_mod else from_file_tag.go_work
             else:
-                go_mod_or_work_label = Label("//:non_root_module") # this is a fake one
+                go_mod_or_work_label = _NON_ROOT_MODULE
 
             all_module_resolutions[go_mod_or_work_label] = all_module_resolutions.get(go_mod_or_work_label, {})
             all_replace_map[go_mod_or_work_label] = all_replace_map.get(go_mod_or_work_label, {})
@@ -760,17 +772,32 @@ Go module version (go.mod):       {go_module_version}
 
                 go_repository_args.update(repo_args)
 
+            if go_mod_or_work_label != _NON_ROOT_MODULE:
+                go_repository_args["build_config"] = Label("@bazel_gazelle_go_repository_config//:WORKSPACE_{}".format(
+                    _sanitize_name(go_mod_or_work_label.package)
+                ))
+
             go_repository(**go_repository_args)
 
+    # we need to pass go_mod_or_work_label scoped module_resolutions to go_repository_config
+    # However, attr don't support nested dicts, so we need to flatten them here
+    # instead of passing {module.repo_name: path}
+    # we pass {"{}+{}".format(go_mod_or_work_label.package, module.repo_name): path}
+    # for NON_ROOT_MODULE, we just use module.repo_name as key
     importpaths = {}
     build_naming_conventions = {}
-    for module_resolutions in all_module_resolutions.values():
+    for go_mod_or_work_label, module_resolutions in all_module_resolutions.items():
         for path, module in module_resolutions.items():
-            importpaths[module.repo_name] = path
-            build_naming_conventions[module.repo_name] = get_directive_value(
+            build_naming_convention = get_directive_value(
                 _get_directives(path, gazelle_overrides, gazelle_default_attributes),
                 "go_naming_convention",
             )
+            repo_name = module.repo_name
+            if go_mod_or_work_label != _NON_ROOT_MODULE:
+                repo_name = "{}+{}".format(_sanitize_name(go_mod_or_work_label.package), module.repo_name)
+            importpaths[repo_name] = path
+            build_naming_conventions[repo_name] = build_naming_convention
+
     # Create a synthetic WORKSPACE file that lists all Go repositories created
     # above and contains all the information required by Gazelle's -repo_config
     # to generate BUILD files for external Go modules. This skips the need to
