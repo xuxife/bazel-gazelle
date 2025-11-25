@@ -237,6 +237,9 @@ func (cc *CommonConfigurer) CheckFlags(fs *flag.FlagSet, c *Config) error {
 		} else {
 			return fmt.Errorf("-repo_root not specified, and WORKSPACE cannot be found: %v", err)
 		}
+		if relativePath := os.Getenv("GAZELLE_WORKSPACE_RELATIVE_PATH"); relativePath != "" {
+			cc.repoRoot = filepath.Join(cc.repoRoot, relativePath)
+		}
 	}
 	if filepath.IsAbs(cc.repoRoot) {
 		c.RepoRoot = cc.repoRoot

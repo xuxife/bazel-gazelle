@@ -273,7 +273,14 @@ def _go_repository_config_impl(ctx):
 
     for workspace, repos in all_repos.items():
         ctx.file(workspace, "\n".join(repos))
-    ctx.file("BUILD.bazel", "exports_files(['config.json', 'go_env.bzl', " + ", ".join(["'{}'".format(w) for w in all_repos.keys()]) + "])")
+    ctx.file("BUILD.bazel", "exports_files(['WORKSPACE', 'config.json', 'go_env.bzl'])" + "\n" + """filegroup(
+    name = "ALL_WORKSPACE",
+    srcs = [
+        {}
+    ],
+    visibility = ["//visibility:public"],
+)
+""".format(",\n        ".join(['"{}"'.format(w) for w in all_repos.keys()])))
     ctx.file("go_env.bzl", content = "GO_ENV = " + repr(ctx.attr.go_env))
 
     # For use by @rules_go//go.

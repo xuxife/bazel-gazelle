@@ -110,10 +110,8 @@ def _gazelle_runner_attr_factory(test_runner = False):
         "extra_args": attr.string_list(),
         "data": attr.label_list(allow_files = True),
         "env": attr.string_dict(),
-        "versioned": attr.label(allow_single_file = True),
         "_repo_config": attr.label(
-            default = "@bazel_gazelle_go_repository_config//:WORKSPACE" if GAZELLE_IS_BAZEL_MODULE else None,
-            allow_single_file = True,
+            default = "@bazel_gazelle_go_repository_config//:ALL_WORKSPACE" if GAZELLE_IS_BAZEL_MODULE else None,
         ),
         "_template": attr.label(
             default = "//internal:gazelle.bash.in",
@@ -157,7 +155,16 @@ def _gazelle_runner_impl_factory(ctx, test_runner = False):
 
     out_file = ctx.actions.declare_file(ctx.label.name + ".bash")
     go_tool = ctx.toolchains["@io_bazel_rules_go//go:toolchain"].sdk.go
-    repo_config = ctx.file._repo_config
+    repo_config = None
+    if GAZELLE_IS_BAZEL_MODULE:
+        repo_configs = ctx.attr._repo_config.files.to_list()
+        workspace = "WORKSPACE"
+        if ctx.label.package: # gazelle in sub-folder
+            workspace = "WORKSPACE_" + "".join([c.lower() if c.isalnum() else "_" for c in ctx.label.package.elems()])
+        for f in repo_configs:
+            if f.basename == workspace:
+                repo_config = f
+                break
     substitutions = {
         "@@ARGS@@": shell.array_literal(args),
         "@@GAZELLE_PATH@@": shell.quote(_rlocation_path(ctx, ctx.executable.gazelle)),
@@ -169,7 +176,7 @@ def _gazelle_runner_impl_factory(ctx, test_runner = False):
         "@@ENV@@": env,
         "@@REPO_CONFIG_PATH@@": shell.quote(_rlocation_path(ctx, repo_config)) if repo_config else "",
         "@@WORKSPACE@@": ctx.file.workspace.path if test_runner else "",
-        "@@GAZELLE_WORKSPACE_RELATIVE_PATH@@": ctx.attr.versioned.label.package if ctx.attr.versioned else "",
+        "@@GAZELLE_WORKSPACE_RELATIVE_PATH@@": ctx.label.package,
     }
     ctx.actions.expand_template(
         template = ctx.file._template,

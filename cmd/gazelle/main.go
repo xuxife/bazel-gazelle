@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/language"
@@ -92,6 +93,9 @@ func run(wd string, args []string) error {
 
 	switch cmd {
 	case fixCmd, updateCmd:
+		if relativePath := os.Getenv("GAZELLE_WORKSPACE_RELATIVE_PATH"); relativePath != "" {
+			wd = filepath.Join(wd, relativePath)
+		}
 		return runFixUpdate(wd, cmd, args)
 	case helpCmd:
 		return help()
