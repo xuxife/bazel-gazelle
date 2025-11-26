@@ -627,6 +627,8 @@ def _go_deps_impl(module_ctx):
                         root_versions[path] = replace.version
 
     for go_mod_or_work_label, module_resolutions in all_module_resolutions.items():
+        if go_mod_or_work_label == _NON_ROOT_MODULE:
+            continue
         root_versions = all_root_versions[go_mod_or_work_label]
         for path, bazel_dep in bazel_deps.items():
             # We can't apply overrides to Bazel dependencies and thus fall back to using the Go module.
