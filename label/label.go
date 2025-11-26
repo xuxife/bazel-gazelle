@@ -22,7 +22,9 @@ package label
 import (
 	"fmt"
 	"log"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -172,10 +174,14 @@ func (l Label) String() string {
 		repo = "@" + repo
 	}
 
-	if path.Base(l.Pkg) == l.Name {
-		return fmt.Sprintf("%s//%s", repo, l.Pkg)
+	pkg := l.Pkg
+	if relativePath := os.Getenv("GAZELLE_WORKSPACE_RELATIVE_PATH"); repo == "" && relativePath != "" {
+		pkg = filepath.Join(relativePath, pkg)
 	}
-	return fmt.Sprintf("%s//%s:%s", repo, l.Pkg, l.Name)
+	if path.Base(l.Pkg) == l.Name {
+		return fmt.Sprintf("%s//%s", repo, pkg)
+	}
+	return fmt.Sprintf("%s//%s:%s", repo, pkg, l.Name)
 }
 
 // Abs computes an absolute label (one with a repository and package name)
